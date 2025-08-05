@@ -5,6 +5,7 @@ const geminiService = require('../services/geminiService');
 const Lead = require('../models/Lead');
 const logger = require('../utils/logger');
 const { handleUserQuery } = require('../services/handleChatHistory');
+const { upload } = require('../utils/fileUpload');
 
 const router = express.Router();
 
@@ -344,7 +345,7 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-router.post('/chat', handleUserQuery);
+router.post('/chat', upload.array("files", 10), handleUserQuery);
 
 // router.post('/chat', async (req, res) => {
 //   try {

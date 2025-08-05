@@ -16,6 +16,21 @@ const MessageSchema = new mongoose.Schema({
     }
 });
 
+const AttachmentSchema = new mongoose.Schema({
+    filename: String,
+    path: String,
+    mimetype: String,
+}, { _id: false });
+
+const PendingEmailSchema = new mongoose.Schema({
+    subject: String,
+    body: String,
+    recipients: [String],
+    intent: String,
+    createdAt: { type: Date, default: Date.now },
+    attachments: [AttachmentSchema],
+}, { _id: false });
+
 const ChatSessionSchema = new mongoose.Schema({
     sessionId: {
         type: String,
@@ -24,19 +39,23 @@ const ChatSessionSchema = new mongoose.Schema({
         unique: true,
     },
     userId: {
-        type: mongoose.Schema.Types.ObjectId, // or String if you use plain IDs
-        ref: 'User', // optional: reference to your User model
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
         required: false,
     },
+
+
     history: {
-        type: [MessageSchema], // Array of user/assistant messages
+        type: [MessageSchema],
         default: [],
     },
     lastActive: {
         type: Date,
         default: Date.now,
         index: true,
-    }
+    },
+    pendingEmail: PendingEmailSchema,
+
 });
 
 module.exports = mongoose.model('ChatSession', ChatSessionSchema);
