@@ -56,7 +56,8 @@ const signatureImagePath = path.resolve(
 
 async function handleUserQuery(req, res) {
     try {
-        const { sessionId, message } = req.body;
+        const sessionId = "123456";
+        const { message } = req.body;
         const attachments = req.files;
 
         // 1. Find/create session
@@ -124,10 +125,11 @@ async function handleUserQuery(req, res) {
         // --- EMAIL INTENT DETECTION & DRAFTING ---
         if (/email|mail|send/i.test(message)) {
             try {
-                logger.info("Running Gemini Email Agent");
+                logger.debug("Running Gemini Email Agent");
                 const nameMatch = message.match(
                     /(?:mail to|email to|send mail to|write mail to|write email to)\s+([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)/i
                 );
+                console.log({ nameMatch });
                 let recipientName = nameMatch ? nameMatch[1] : null;
 
                 let enrichedMessage = message;
@@ -189,11 +191,37 @@ async function handleUserQuery(req, res) {
             }
         } else {
             try {
-                logger.info("Running Normal Query");
+                logger.debug("Running Normal Query");
                 // --- EXISTING QUERY TO MONGODB + RESPONSE PIPELINE ---
+                // Always include firstName and lastName by default (if you want)
+                const baseFields = ["firstName", "lastName"];
                 const geminiResponse = await convertQueryToMongoDB(message);
-                const dbResults = await Lead.find(geminiResponse.mongoQuery).limit(100);
+                console.log({ geminiResponse });
+                // Combine with suggested fields (avoid duplicates)
+                const suggestedFieldsSet = new Set([
+                    ...baseFields,
+                    ...(geminiResponse.suggestedFields || []),
+                ]);
 
+                // Build select string for mongoose
+                // Note, handle nested fields like "company.industry" appropriately in select:
+                const selectFieldsStr = Array.from(suggestedFieldsSet)
+                    .map((field) => field) // field names should work as `.select()` accepts dot notation
+                    .join(" ");
+                console.log({ selectFieldsStr });
+                // Now pass select dynamically
+                const dbResults = await Lead.find(geminiResponse.mongoQuery)
+                    .select(selectFieldsStr)
+                    .limit(100);
+
+                console.log({ dbResults });
+
+                if (!geminiResponse || !geminiResponse.mongoQuery) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "Failed to convert query to MongoDB format",
+                    });
+                }
                 session.history.push({
                     role: "assistant",
                     content: JSON.stringify(geminiResponse),
@@ -201,16 +229,35 @@ async function handleUserQuery(req, res) {
                 session.lastActive = new Date();
                 await session.save();
 
+                // Map results, safely access nested fields
+                const filteredResults = dbResults.map((doc) => {
+                    const result = {};
+                    for (const field of suggestedFieldsSet) {
+                        if (field.includes(".")) {
+                            // Traverse nested objects for e.g. company.industry
+                            const parts = field.split(".");
+                            let value = doc;
+                            for (const part of parts) {
+                                if (!value) break;
+                                value = value[part];
+                            }
+                            result[parts[parts.length - 1]] = value;
+                        } else {
+                            result[field] = doc[field];
+                        }
+                    }
+                    return result;
+                });
                 res.json({
                     success: true,
                     data: [
                         {
                             original: message,
-                            total: dbResults.length,
+                            total: filteredResults.length,
                             explanation: geminiResponse.explanation,
                             mongoQuery: geminiResponse.mongoQuery,
                             estimatedResults: geminiResponse.estimatedResults,
-                            results: dbResults,
+                            results: filteredResults,
                         },
                     ],
                 });

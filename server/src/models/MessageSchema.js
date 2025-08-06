@@ -44,7 +44,9 @@ const ChatSessionSchema = new mongoose.Schema({
         required: false,
     },
 
+    response: {
 
+    },
     history: {
         type: [MessageSchema],
         default: [],

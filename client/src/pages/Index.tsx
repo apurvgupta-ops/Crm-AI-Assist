@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { Dashboard } from "@/components/Dashboard";
 import { Contacts } from "@/components/Contacts";
-import { AIChat } from "@/components/AIChat";
+import { AIChat } from "@/components/AIChat2";
 
 const Index = () => {
   const [activeSection, setActiveSection] = useState("dashboard");

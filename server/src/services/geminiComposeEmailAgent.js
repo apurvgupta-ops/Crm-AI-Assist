@@ -1,11 +1,10 @@
-const { GoogleGenAI } = require('@google/genai');
-const logger = require('../utils/logger');
+const { GoogleGenAI } = require("@google/genai");
+const logger = require("../utils/logger");
 
 const GEMINI_API_KEY = process.env.GOOGLE_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash-001';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash-001";
 
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-
 
 function extractFirstJson(raw) {
     // This regex finds the first {...} block (including newlines)
@@ -35,42 +34,48 @@ Only respond with the JSON object. Do not include additional explanation, markdo
 
         const contents = [
             {
-                role: 'user',
-                parts: [{ text: prompt }]
-            }
+                role: "user",
+                parts: [{ text: prompt }],
+            },
         ];
 
         const response = await ai.models.generateContent({
             model: GEMINI_MODEL,
             contents,
             temperature: 0.4,
-            maxOutputTokens: 400
+            maxOutputTokens: 400,
         });
 
-        const rawMessage = response.text ?? response.candidates?.[0]?.content ?? '';
-        if (!rawMessage) throw new Error('No content returned from Gemini API');
+        const rawMessage = response.text ?? response.candidates?.[0]?.content ?? "";
+        if (!rawMessage) throw new Error("No content returned from Gemini API");
 
         // Clean markdown/code block formatting, if any
-        const cleaned = extractFirstJson(rawMessage).replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"'); // Optionally fix curly quotes
-
+        const cleaned = extractFirstJson(rawMessage)
+            .replace(/[\u2018\u2019]/g, "'")
+            .replace(/[\u201C\u201D]/g, '"'); // Optionally fix curly quotes
 
         let parsed;
         try {
             parsed = JSON.parse(cleaned);
         } catch (e) {
-            logger.error('Failed to parse Gemini agent JSON:', e, cleaned);
-            throw new Error('Invalid JSON from Gemini agent');
+            logger.error("Failed to parse Gemini agent JSON:", e, cleaned);
+            throw new Error("Invalid JSON from Gemini agent");
         }
 
         // Optionally validate required fields
-        if (!parsed.intent || !parsed.subject || !parsed.body || !Array.isArray(parsed.recipients) || !parsed.recipients.length) {
-            throw new Error('Incomplete response from Gemini agent');
+        if (
+            !parsed.intent ||
+            !parsed.subject ||
+            !parsed.body ||
+            !Array.isArray(parsed.recipients) ||
+            !parsed.recipients.length
+        ) {
+            throw new Error("Incomplete response from Gemini agent");
         }
 
         return parsed;
-
     } catch (error) {
-        logger.error('Error in geminiComposeEmailAgent:', error);
+        logger.error("Error in geminiComposeEmailAgent:", error);
         throw new Error(`Failed to compose email: ${error.message}`);
     }
 }

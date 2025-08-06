@@ -1,6 +1,5 @@
-
-const nodemailer = require('nodemailer');
-const path = require('path');
+const nodemailer = require("nodemailer");
+const path = require("path");
 
 /**
  * Sends an email using nodemailer.
@@ -15,31 +14,30 @@ const path = require('path');
 // const signatureImagePath = path.resolve(__dirname, '../../email-signature.jpeg');
 
 async function sendMail({ to, subject, text, attachments }) {
-    const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: process.env.SMTP_PORT,
-        secure: process.env.SMTP_SECURE === 'true',
-        auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-        },
-    });
-    console.log({ attachments })
-    const mailOptions = {
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to,
-        subject,
-        html: `${text.replace(/\n/g, '<br>')}<br><br>
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: process.env.SMTP_PORT,
+    secure: process.env.SMTP_SECURE === "true",
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+  const mailOptions = {
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject,
+    html: `${text.replace(/\n/g, "<br>")}<br><br>
       <img src="cid:signature_img" alt="Signature" style="width:300px; height:auto;" />`,
-        attachments: attachments
-    };
+    attachments: attachments,
+  };
 
-    try {
-        const info = await transporter.sendMail(mailOptions);
-        return info;
-    } catch (error) {
-        throw new Error('Failed to send email: ' + error.message);
-    }
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    return info;
+  } catch (error) {
+    throw new Error("Failed to send email: " + error.message);
+  }
 }
 
 module.exports = sendMail;
