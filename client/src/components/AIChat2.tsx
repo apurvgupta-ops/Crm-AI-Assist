@@ -273,7 +273,7 @@ export function AIChat() {
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <Card className="bg-white rounded-lg overflow-hidden shadow-xl w-[1000px] h-[800px] flex flex-col">
+            <Card className="bg-white rounded-lg overflow-hidden shadow-xl w-[1200px] h-[1000px] flex flex-col">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-border/50">
                     <div className="flex items-center gap-3">

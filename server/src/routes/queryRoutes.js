@@ -413,8 +413,8 @@ router.get("/chat-history", async (req, res) => {
   }
 });
 
-router.post("/chats", upload.array("files", 10), handleUserQuery);
-router.post("/chat", upload.array("files", 10), handleUserQuerys);
+router.post("/chat", upload.array("files", 10), handleUserQuery);
+router.post("/chats", upload.array("files", 10), handleUserQuerys);
 
 // router.post('/chat', async (req, res) => {
 //   try {

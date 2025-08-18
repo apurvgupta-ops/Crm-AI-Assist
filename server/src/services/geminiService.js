@@ -1,18 +1,18 @@
-const { GoogleGenAI } = require('@google/genai');
-const logger = require('../utils/logger');
+const { GoogleGenAI } = require("@google/genai");
+const logger = require("../utils/logger");
 
 const GEMINI_API_KEY = process.env.GOOGLE_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash-001';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash-001";
 
 if (!GEMINI_API_KEY) {
-    throw new Error('Google Gemini API key (GEMINI_API_KEY) is required');
+  throw new Error("Google Gemini API key (GEMINI_API_KEY) is required");
 }
 
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
 // System prompt for query conversion
 function getSystemPrompt() {
-    return `You are an expert MongoDB query generator for a CRM system. Your task is to convert natural language queries into MongoDB queries for a Lead collection.
+  return `You are an expert MongoDB query generator for a CRM system. Your task is to convert natural language queries into MongoDB queries for a Lead collection.
 
 LEAD SCHEMA STRUCTURE:
 {
@@ -74,13 +74,13 @@ Return ONLY the pure JSON object as specified, with no explanations, notes, or e
 
 // User prompt with date context
 function getUserPrompt(query) {
-    const currentDate = new Date();
-    return `Convert this natural language query to a MongoDB query: "${query}"
+  const currentDate = new Date();
+  return `Convert this natural language query to a MongoDB query: "${query}"
 
 Current date context:
 - Current year: ${currentDate.getFullYear()}
 - Current month: ${currentDate.getMonth() + 1}
-- Current date: ${currentDate.toISOString().split('T')[0]}
+- Current date: ${currentDate.toISOString().split("T")[0]}
 
 Remember to:
 1. Use proper date handling for month/year references
@@ -94,123 +94,138 @@ Return ONLY the pure JSON object as specified, with no explanations, notes, or e
 }
 
 function validateResponse(response) {
-    if (!response || typeof response !== 'object') return false;
+  if (!response || typeof response !== "object") return false;
 
-    const requiredFields = ['mongoQuery', 'explanation', 'suggestedFields', 'estimatedResults'];
-    for (const field of requiredFields) {
-        if (!(field in response)) return false;
-    }
+  const requiredFields = [
+    "mongoQuery",
+    "explanation",
+    "suggestedFields",
+    "estimatedResults",
+  ];
+  for (const field of requiredFields) {
+    if (!(field in response)) return false;
+  }
 
-    if (typeof response.mongoQuery !== 'object') return false;
-    if (!Array.isArray(response.suggestedFields)) return false;
+  if (typeof response.mongoQuery !== "object") return false;
+  if (!Array.isArray(response.suggestedFields)) return false;
 
-    return true;
+  return true;
 }
 
 // Clean possible markdown/code fences to extract JSON string
 function cleanJSONResponse(response) {
-    // Remove code fencing and extra text before/after JSON
-    let match = response.match(/({[\s\S]*})/m);
-    if (match) return match[1].trim();
+  // Remove code fencing and extra text before/after JSON
+  let match = response.match(/({[\s\S]*})/m);
+  if (match) return match[1].trim();
 
-    // Fallback to previous method as backup
-    const fencedJSON = response.match(/``````/i);
-    if (fencedJSON) return fencedJSON[1].trim();
-    const fencedAny = response.match(/``````/);
-    if (fencedAny) return fencedAny[1].trim();
-    return response.trim();
+  // Fallback to previous method as backup
+  const fencedJSON = response.match(/``````/i);
+  if (fencedJSON) return fencedJSON[1].trim();
+  const fencedAny = response.match(/``````/);
+  if (fencedAny) return fencedAny[1].trim();
+  return response.trim();
 }
 async function convertQueryToMongoDB(naturalLanguageQuery) {
-    try {
-        const systemPrompt = getSystemPrompt();
-        const userPrompt = getUserPrompt(naturalLanguageQuery);
+  try {
+    const systemPrompt = getSystemPrompt();
+    const userPrompt = getUserPrompt(naturalLanguageQuery);
 
-        // Wrap prompt in contents/parts structure for Gemini
-        const contents = [
-            {
-                role: 'user',
-                parts: [{ text: `${systemPrompt}\n${userPrompt}` }]
-            }
-        ];
+    // Wrap prompt in contents/parts structure for Gemini
+    const contents = [
+      {
+        role: "user",
+        parts: [{ text: `${systemPrompt}\n${userPrompt}` }],
+      },
+    ];
 
-        const response = await ai.models.generateContent({
-            model: GEMINI_MODEL,
-            contents,
-            temperature: 0.1,
-            maxOutputTokens: 1500
-        });
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents,
+      temperature: 0.1,
+      maxOutputTokens: 1500,
+    });
 
-        const rawMessage = response.text ?? response.candidates?.[0]?.content ?? '';
+    const rawMessage = response.text ?? response.candidates?.[0]?.content ?? "";
 
-        if (!rawMessage) {
-            throw new Error('No content returned from Gemini API');
-        }
-
-        // Clean and parse JSON
-        const cleanedMessage = cleanJSONResponse(rawMessage);
-
-        let parsedResponse;
-        try {
-            parsedResponse = JSON.parse(cleanedMessage);
-        } catch (e) {
-            logger.error('Failed to parse Gemini response:', e, 'Raw response:', cleanedMessage);
-            throw new Error('Invalid JSON response from Gemini API');
-        }
-
-        if (!validateResponse(parsedResponse)) {
-            throw new Error('Invalid response structure from Gemini API');
-        }
-
-        logger.info(`Natural language query converted: "${naturalLanguageQuery}"`);
-        logger.debug('Generated MongoDB query:', parsedResponse.mongoQuery);
-
-        return parsedResponse;
-    } catch (error) {
-        logger.error('Error converting query with Gemini:', error);
-        throw new Error(`Failed to convert query: ${error.message}`);
+    if (!rawMessage) {
+      throw new Error("No content returned from Gemini API");
     }
+
+    // Clean and parse JSON
+    const cleanedMessage = cleanJSONResponse(rawMessage);
+
+    let parsedResponse;
+    try {
+      parsedResponse = JSON.parse(cleanedMessage);
+    } catch (e) {
+      logger.error(
+        "Failed to parse Gemini response:",
+        e,
+        "Raw response:",
+        cleanedMessage
+      );
+      throw new Error("Invalid JSON response from Gemini API");
+    }
+
+    if (!validateResponse(parsedResponse)) {
+      throw new Error("Invalid response structure from Gemini API");
+    }
+
+    logger.info(`Natural language query converted: "${naturalLanguageQuery}"`);
+    logger.debug("Generated MongoDB query:", parsedResponse.mongoQuery);
+
+    return parsedResponse;
+  } catch (error) {
+    logger.error("Error converting query with Gemini:", error);
+    throw new Error(`Failed to convert query: ${error.message}`);
+  }
 }
 
 async function generateQuerySuggestions() {
-    try {
-        const prompt = [
-            'Generate 10 example natural language queries for a CRM system that users might ask about leads.',
-            'Provide diverse examples including queries about lead temperature, status, time periods, company information, and lead scoring.'
-        ].join('\n');
+  try {
+    const prompt = [
+      "Generate 10 example natural language queries for a CRM system that users might ask about leads.",
+      "Provide diverse examples including queries about lead temperature, status, time periods, company information, and lead scoring.",
+    ].join("\n");
 
-        const contents = [{ parts: [{ text: prompt }] }];
+    const contents = [{ parts: [{ text: prompt }] }];
 
-        const response = await ai.models.generateContent({
-            model: GEMINI_MODEL,
-            contents,
-            temperature: 0.7,
-            maxOutputTokens: 500
-        });
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents,
+      temperature: 0.7,
+      maxOutputTokens: 500,
+    });
 
-        const rawMessage = response.text ?? response.candidates?.[0]?.content ?? '';
+    const rawMessage = response.text ?? response.candidates?.[0]?.content ?? "";
 
-        if (!rawMessage) {
-            throw new Error('No content returned from Gemini API');
-        }
-
-        const cleanedMessage = cleanJSONResponse(rawMessage);
-
-        let parsedResponse;
-        try {
-            parsedResponse = JSON.parse(cleanedMessage);
-        } catch (e) {
-            logger.error('Failed to parse Gemini suggestions response:', e, 'Raw response:', cleanedMessage);
-            throw new Error('Invalid JSON response from Gemini API');
-        }
-
-        return parsedResponse;
-    } catch (error) {
-        logger.error('Error generating query suggestions:', error);
-        throw new Error('Failed to generate query suggestions');
+    if (!rawMessage) {
+      throw new Error("No content returned from Gemini API");
     }
+
+    const cleanedMessage = cleanJSONResponse(rawMessage);
+
+    let parsedResponse;
+    try {
+      parsedResponse = JSON.parse(cleanedMessage);
+    } catch (e) {
+      logger.error(
+        "Failed to parse Gemini suggestions response:",
+        e,
+        "Raw response:",
+        cleanedMessage
+      );
+      throw new Error("Invalid JSON response from Gemini API");
+    }
+
+    return parsedResponse;
+  } catch (error) {
+    logger.error("Error generating query suggestions:", error);
+    throw new Error("Failed to generate query suggestions");
+  }
 }
 
 module.exports = {
-    convertQueryToMongoDB,
-    generateQuerySuggestions,
+  convertQueryToMongoDB,
+  generateQuerySuggestions,
 };

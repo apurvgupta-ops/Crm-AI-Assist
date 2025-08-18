@@ -34,7 +34,8 @@ export interface ChatHistoryResponse {
 }
 
 class AIService {
-  private baseUrl = 'http://localhost:3000/api/v1';
+  private baseUrl = 'http://localhost:3001/api/v1';
+  // private baseUrl = 'https://crm-agentapp.24livehost.com/api/v1';
   
   async sendChatMessage(request: ChatRequest): Promise<ChatResponse> {
     try {
