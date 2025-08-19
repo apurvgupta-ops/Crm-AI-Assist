@@ -8,27 +8,27 @@ import { aiService, ChatHistoryMessage } from "../services/aiService";
 
 interface Message {
   id: string;
-  text: string;
+  text: string | any[];
   sender: "user" | "ai";
   timestamp: Date;
   isFormatted?: boolean;
-  responseType?: "leads" | "query" | "explanation" | "error";
+  responseType?: "leads" | "query" | "explanation" | "error" | "email";
+  draft?: {
+    subject: string;
+    body: string;
+    to: string;
+    recipientName?: string;
+  };
 }
 
-// Helper: Capitalize first letter
 function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
-// Helper: Flatten nested objects to dot notation keys, e.g., { company: { industry: 'Tech' } } => { 'company.industry': 'Tech' }
 function flattenObject(obj: any, prefix = ""): Record<string, any> {
   return Object.keys(obj).reduce((acc, key) => {
     const pre = prefix.length ? prefix + "." : "";
-    if (
-      obj[key] !== null &&
-      typeof obj[key] === "object" &&
-      !Array.isArray(obj[key])
-    ) {
+    if (obj[key] !== null && typeof obj[key] === "object" && !Array.isArray(obj[key])) {
       Object.assign(acc, flattenObject(obj[key], pre + key));
     } else {
       acc[pre + key] = obj[key];
@@ -37,7 +37,6 @@ function flattenObject(obj: any, prefix = ""): Record<string, any> {
   }, {} as Record<string, any>);
 }
 
-// Mapping field keys to emojis/icons for nicer UI
 const fieldIcons: Record<string, string> = {
   firstName: "👤",
   lastName: "👤",
@@ -46,17 +45,17 @@ const fieldIcons: Record<string, string> = {
   status: "📊",
   budget: "💰",
   company: "🏢",
-  "company.industry": "🏭",
-  // Add more as needed
+  name: "🏢",
+  temperature: "🌡️",
+  industry: "🏭",
 };
 
 function getIcon(key: string) {
   if (fieldIcons[key]) return fieldIcons[key];
   const rootKey = key.split(".")[0];
-  return fieldIcons[rootKey] || "";
+  return fieldIcons[rootKey] || "📋";
 }
 
-// Detect response type if AI returns leads/raw data
 const detectMessageType = (
   content: string
 ): { responseType: "leads" | "query" | "explanation" | "error"; isFormatted: boolean } => {
@@ -72,38 +71,62 @@ export function AIChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const sessionId = "123456"; // Can be dynamic per user/session
+  const sessionId = "123456";
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Load chat history when opened if no messages loaded yet
   useEffect(() => {
     if (isOpen && messages.length === 0) {
       loadChatHistory();
     }
   }, [isOpen]);
 
-  // Scroll to bottom on new message when chat open and not minimized
   useEffect(() => {
     if (isOpen && !isMinimized && messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, isOpen, isMinimized]);
 
-  // Load chat history from backend
   const loadChatHistory = async () => {
     setIsLoading(true);
     try {
       const historyResponse = await aiService.getChatHistory(sessionId);
-      if (historyResponse.success && historyResponse.data.length > 0) {
-        const historyMessages = historyResponse.data[0].history;
+      if (historyResponse.success && historyResponse.data.result && historyResponse.data.result.length > 0) {
+        const historyMessages = historyResponse.data.result[0].history;
         const convertedMessages: Message[] = historyMessages.map((msg: ChatHistoryMessage) => {
+          // ✅ Handle array content (leads data)
+          if (msg.role === "assistant" && Array.isArray(msg.content)) {
+            return {
+              id: msg._id,
+              text: msg.content,
+              sender: "ai",
+              timestamp: new Date(msg.timestamp),
+              responseType: "leads",
+              isFormatted: false,
+            };
+          }
+
+          // ✅ Handle email draft objects in history
+          if (msg.role === "assistant" && typeof msg.content === "object" && msg.content.type === "email_draft") {
+            return {
+              id: msg._id,
+              text: msg.content.message,  // Use the message field
+              sender: "ai",
+              timestamp: new Date(msg.timestamp),
+              responseType: "email",
+              isFormatted: false,
+              draft: msg.content.draft    // Pass the draft object
+            };
+          }
+
+          // Handle string content
           const messageType =
             msg.role === "assistant"
-              ? detectMessageType(msg.content)
+              ? detectMessageType(String(msg.content))
               : { responseType: "explanation" as const, isFormatted: false };
+
           return {
             id: msg._id,
-            text: msg.content,
+            text: String(msg.content),
             sender: msg.role === "user" ? "user" : "ai",
             timestamp: new Date(msg.timestamp),
             responseType: messageType.responseType,
@@ -112,7 +135,6 @@ export function AIChat() {
         });
         setMessages(convertedMessages);
       } else {
-        // No history - set welcome message
         setMessages([
           {
             id: "1",
@@ -139,21 +161,18 @@ export function AIChat() {
     }
   };
 
-  // Send user message and handle AI response
+  // Main send message handler including email draft logic
   const sendMessage = () => {
     if (!inputValue.trim()) return;
-
     const userMessage: Message = {
       id: Date.now().toString(),
       text: inputValue,
       sender: "user",
       timestamp: new Date(),
     };
-
     setMessages((prev) => [...prev, userMessage]);
     const messageToSend = inputValue;
     setInputValue("");
-
     aiService
       .sendChatMessage({
         message: messageToSend,
@@ -162,36 +181,25 @@ export function AIChat() {
       .then((response) => {
         let aiResponse: Message;
         let responseText = "";
-
+        // ✅ Email draft support
         if (response && typeof response === "object") {
-          if (response.success && response.data && response.data.length > 0) {
+          if (response.success && response.draft) {
+            // Show formatted email draft
+            aiResponse = {
+              id: (Date.now() + 1).toString(),
+              text: response.message || "", // Use the message from response
+              sender: "ai",
+              timestamp: new Date(),
+              responseType: "email",
+              isFormatted: false,
+              draft: response.draft,
+            };
+          } else if (response.success && response.data && response.data.length > 0) {
             const dataItem = response.data[0];
             if (dataItem.results && Array.isArray(dataItem.results) && dataItem.results.length > 0) {
-              // Dynamically render leads fields
-              // Flatten and extract all fields present in first lead as UI guide
-              // Here we format with emoji + key name + value
-              const leadsJSX = dataItem.results
-                .map((lead: any, index: number) => {
-                  // Flatten lead object to dot notation keys
-                  const flatLead = flattenObject(lead);
-                  return (
-                    `📋 Lead #${index + 1}\n` +
-                    Object.entries(flatLead)
-                      .map(([key, val]) => {
-                        const icon = getIcon(key);
-                        const label = capitalize(key.split('.').slice(-1)[0]);
-                        return `${icon} ${label}: ${val ?? "N/A"}`;
-                      })
-                      .join("\n")
-                  );
-                })
-                .join("\n\n");
-
-              responseText = `✅ Found ${dataItem.results.length} lead(s):\n\n${leadsJSX}`;
-
               aiResponse = {
                 id: (Date.now() + 1).toString(),
-                text: responseText,
+                text: dataItem.results,
                 sender: "ai",
                 timestamp: new Date(),
                 responseType: "leads",
@@ -218,8 +226,16 @@ export function AIChat() {
                 responseType: "query",
               };
             }
+          } else if (response.message) {
+            aiResponse = {
+              id: (Date.now() + 1).toString(),
+              text: response.message,
+              sender: "ai",
+              timestamp: new Date(),
+              responseType: "explanation",
+              isFormatted: false,
+            };
           } else {
-            // Raw response fallback
             responseText = JSON.stringify(response, null, 2);
             aiResponse = {
               id: (Date.now() + 1).toString(),
@@ -242,14 +258,12 @@ export function AIChat() {
         } else {
           aiResponse = {
             id: (Date.now() + 1).toString(),
-            text:
-              "I received your message but couldn't generate a proper response. Please try again.",
+            text: "I received your message but couldn't generate a proper response. Please try again.",
             sender: "ai",
             timestamp: new Date(),
             responseType: "error",
           };
         }
-
         setMessages((prev) => [...prev, aiResponse]);
       })
       .catch((error) => {
@@ -270,6 +284,7 @@ export function AIChat() {
       <button
         onClick={() => setIsOpen(true)}
         className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-primary rounded-full shadow-floating flex items-center justify-center text-white hover:scale-110 transition-all duration-300 animate-float z-50"
+        aria-label="Open AI Chat"
       >
         <Bot size={24} />
       </button>
@@ -278,7 +293,7 @@ export function AIChat() {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <Card className="bg-white rounded-lg overflow-hidden shadow-xl w-[1000px] h-[800px] flex flex-col">
+      <Card className="bg-white rounded-lg overflow-hidden shadow-xl w-[1200px] h-[1000px] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border/50">
           <div className="flex items-center gap-3">
@@ -294,18 +309,19 @@ export function AIChat() {
             <button
               onClick={() => setIsMinimized(!isMinimized)}
               className="p-1 hover:bg-muted rounded transition-colors"
+              aria-label={isMinimized ? "Restore chat" : "Minimize chat"}
             >
               <Minimize2 size={16} className="text-muted-foreground" />
             </button>
             <button
               onClick={() => setIsOpen(false)}
               className="p-1 hover:bg-muted rounded transition-colors"
+              aria-label="Close chat"
             >
               <X size={16} className="text-muted-foreground" />
             </button>
           </div>
         </div>
-
         {!isMinimized && (
           <>
             {/* Messages */}
@@ -313,9 +329,7 @@ export function AIChat() {
               {isLoading ? (
                 <div className="flex justify-center items-center h-20">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900"></div>
-                  <span className="ml-2 text-sm text-muted-foreground">
-                    Loading chat history...
-                  </span>
+                  <span className="ml-2 text-sm text-muted-foreground">Loading chat history...</span>
                 </div>
               ) : (
                 messages.map((message) => (
@@ -334,24 +348,58 @@ export function AIChat() {
                           : "bg-white border border-gray-200 text-gray-800"
                       )}
                     >
-                      {message.isFormatted ? (
+                      {/* Show email draft */}
+                      {message.responseType === "email" && message.draft ? (
+                        <div className="email-draft-container bg-blue-50 border border-blue-200 rounded-lg p-4">
+                          <div className="email-draft-header flex items-center gap-2 mb-3">
+                            <span className="text-2xl">📧</span>
+                            <span className="font-semibold text-blue-700">Email Draft</span>
+                          </div>
+                          <div>
+                            <div className="mb-2"><strong>To:</strong> {message.draft.recipientName || message.draft.to}</div>
+                            <div className="mb-2"><strong>Subject:</strong> {message.draft.subject}</div>
+                            <div className="mb-2"><strong>Body:</strong></div>
+                            <div className="bg-white shadow-sm rounded p-2 border text-sm mt-1 whitespace-pre-wrap">{message.draft.body}</div>
+                          </div>
+                          <div className="mt-3 text-xs text-blue-700">
+                            Would you like to send this email? Reply <strong>YES</strong> to confirm or <strong>NO</strong> to cancel.
+                          </div>
+                        </div>
+                      ) : Array.isArray(message.text) && message.responseType === "leads" ? (
+                        <div className="space-y-4">
+                          <div className="font-semibold text-blue-600 mb-3">
+                            ✅ Found {message.text.length} lead(s):
+                          </div>
+                          {message.text.map((lead, index) => (
+                            <div key={index} className="p-3 border border-gray-300 rounded-md bg-gray-50">
+                              <div className="font-semibold text-blue-600 mb-2">
+                                📋 Lead #{index + 1}
+                              </div>
+                              <div className="grid grid-cols-1 gap-1">
+                                {Object.entries(flattenObject(lead)).map(([key, val], idx) => (
+                                  <div key={idx} className="text-gray-700 text-sm">
+                                    <span className="inline-flex items-center gap-1">
+                                      <span>{getIcon(key)}</span>
+                                      <span className="font-medium">{capitalize(key.split(".").slice(-1)[0])}:</span>
+                                      <span>{val ?? "N/A"}</span>
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : message.isFormatted ? (
                         <pre className="whitespace-pre-wrap font-mono text-xs bg-gray-50 p-3 rounded border overflow-x-auto text-gray-700">
-                          {message.text}
+                          {message.text as string}
                         </pre>
-                      ) : message.responseType === "leads" ? (
+                      ) : message.responseType === "leads" && typeof message.text === "string" ? (
                         <div className="space-y-4">
                           {message.text.split("\n\n").map((leadBlock, index) => (
-                            <div
-                              key={index}
-                              className="p-3 border border-gray-300 rounded-md"
-                            >
+                            <div key={index} className="p-3 border border-gray-300 rounded-md">
                               {leadBlock.split("\n").map((line, idx) => {
                                 const trimmedLine = line.trim();
                                 if (!trimmedLine) return <div key={idx} className="h-1" />;
-                                const iconMatch = trimmedLine.match(
-                                  /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)/u
-                                );
-                                const hasIcon = Boolean(iconMatch);
                                 return (
                                   <div
                                     key={idx}
@@ -370,7 +418,7 @@ export function AIChat() {
                         </div>
                       ) : (
                         <div className="whitespace-pre-wrap break-words leading-relaxed">
-                          {message.text}
+                          {message.text as string}
                         </div>
                       )}
                       <p
@@ -392,20 +440,23 @@ export function AIChat() {
               )}
               <div ref={messagesEndRef} />
             </div>
-
-            {/* Input */}
+            {/* Input section */}
             <div className="p-4 border-t border-border/50">
               <div className="flex items-center gap-2">
                 <Input
                   placeholder="Ask me anything about your CRM..."
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && sendMessage()}
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter") sendMessage();
+                  }}
                   className="flex-1"
+                  aria-label="Type your message"
                 />
                 <Button
                   onClick={sendMessage}
                   className="bg-gradient-primary hover:opacity-90 text-white p-2"
+                  aria-label="Send message"
                 >
                   <Send size={16} />
                 </Button>
@@ -417,3 +468,5 @@ export function AIChat() {
     </div>
   );
 }
+
+export default AIChat;

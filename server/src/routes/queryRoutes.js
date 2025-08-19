@@ -7,7 +7,7 @@ const logger = require("../utils/logger");
 const { handleUserQuery } = require("../services/handleChatHistory");
 const { upload } = require("../utils/fileUpload");
 const { handleUserQuerys } = require("../services/handleChatHistory2");
-
+const { handleUserQuery: frameworks } = require('../services/frameworks')
 const router = express.Router();
 
 // Validation middleware for query requests
@@ -398,7 +398,9 @@ router.get("/chat-history", async (req, res) => {
 
     res.json({
       success: true,
-      data: history,
+      data: {
+        result: history
+      },
     });
   } catch (error) {
     logger.error("Error fetching chat history:", error);
@@ -413,8 +415,9 @@ router.get("/chat-history", async (req, res) => {
   }
 });
 
+// router.post("/chat", upload.array("files", 10), frameworks)
 router.post("/chat", upload.array("files", 10), handleUserQuery);
-router.post("/chats", upload.array("files", 10), handleUserQuerys);
+// router.post("/chats", upload.array("files", 10), handleUserQuerys);
 
 // router.post('/chat', async (req, res) => {
 //   try {

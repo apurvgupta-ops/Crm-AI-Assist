@@ -3,7 +3,6 @@ const logger = require('../utils/logger');
 
 const connectDB = async () => {
   try {
-    console.log(process.env.NODE_ENV)
     const mongoURI = process.env.NODE_ENV === 'development'
       ? process.env.MONGODB_URI
       : process.env.MONGODB_TEST_URI;

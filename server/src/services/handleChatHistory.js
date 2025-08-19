@@ -95,10 +95,24 @@ function getUserPrompt(currentQuery, recentHistory) {
 
     // Format recent history as turns with roles
     const historyText = recentHistory
-        .map(
-            (m) =>
-                `${m.role === "user" ? "User" : "Assistant"}: ${m.content.trim()}`
-        )
+        .map((m) => {
+            let contentText = "";
+
+            // ✅ Handle both string and array content
+            if (typeof m.content === "string") {
+                contentText = m.content.trim();
+            } else if (Array.isArray(m.content)) {
+                // Summarize array content for context
+                contentText = `Found ${m.content.length} leads with details`;
+            } else if (typeof m.content === "object") {
+                // Handle other object types
+                contentText = JSON.stringify(m.content);
+            } else {
+                contentText = String(m.content);
+            }
+
+            return `${m.role === "user" ? "User" : "Assistant"}: ${contentText}`;
+        })
         .join("\n");
 
     return `
@@ -118,6 +132,7 @@ Current date context:
 Return ONLY the JSON object as specified in the system prompt.
 `;
 }
+
 
 // Clean and parse AI JSON response
 function cleanJSONResponse(response) {
@@ -161,26 +176,16 @@ async function convertQueryToMongoDB(naturalLanguageQuery, chatHistory) {
         const systemPrompt = getSystemPrompt();
         const userPrompt = getUserPrompt(naturalLanguageQuery, chatHistory);
 
-        const contents = [
-            // {
-            //     role: "system",
-            //     parts: [{ text: systemPrompt }],
-            // },
-            ...chatHistory.map((msg) => ({
-                role: msg.role === "user" ? "user" : "assistant",
-                parts: [{ text: msg.content }],
-            })),
-            { role: "user", parts: [{ text: systemPrompt + "\n\n" + userPrompt }] },
-        ];
-
         const response = await ai.models.generateContent({
             model: GEMINI_MODEL,
-            contents,
-            temperature: 0.1,
-            maxOutputTokens: 1500,
+            contents: systemPrompt + "\n\n" + userPrompt,
+            config: {
+                temperature: 0.1,
+                maxOutputTokens: 1500,
+            }
         });
 
-        const rawMessage = response.text ?? response.candidates?.[0]?.content ?? "";
+        const rawMessage = response.text;
 
         if (!rawMessage) {
             throw new Error("No content returned from Gemini API");
@@ -342,9 +347,21 @@ async function handleUserQuery(req, res) {
                 createdAt: new Date(),
             };
 
-            // Replace placeholder <recipientName> with resolved name in AI reply
             const reply = aiResponse.reply.replace(/<recipientName>/g, foundName);
-            session.history.push({ role: "assistant", content: reply });
+            session.history.push({
+                role: "assistant",
+                content: {
+                    message: reply,
+                    type: "email_draft",
+                    draft: {
+                        subject: aiResponse.subject,
+                        body: aiResponse.body,
+                        recipients: [foundEmail],
+                        to: foundEmail,
+                        recipientName: foundName
+                    }
+                }
+            });
             session.lastActive = new Date();
             await session.save();
 
@@ -356,6 +373,7 @@ async function handleUserQuery(req, res) {
                     subject: aiResponse.subject,
                     body: aiResponse.body,
                     to: foundEmail,
+                    recipientName: foundName
                 },
             });
         }
@@ -420,7 +438,20 @@ async function handleUserQuery(req, res) {
                         const draftReply = `Here is your draft email to ${agentResult.recipients.join(
                             ", "
                         )}:\nSubject: ${agentResult.subject}\n\n${agentResult.body}\n\nWould you like to send this email now? Reply YES to confirm.`;
-                        session.history.push({ role: "assistant", content: draftReply });
+
+                        session.history.push({
+                            role: "assistant",
+                            content: {
+                                message: draftReply,
+                                type: "email_draft",
+                                draft: {
+                                    subject: agentResult.subject,
+                                    body: agentResult.body,
+                                    recipients: agentResult.recipients,
+                                    to: agentResult.recipients[0] // first recipient
+                                }
+                            }
+                        });
                         session.lastActive = new Date();
                         await session.save();
 
@@ -444,12 +475,10 @@ async function handleUserQuery(req, res) {
                     .select(selectFieldsStr)
                     .limit(100);
 
-                session.history.push({
-                    role: "assistant",
-                    content: JSON.stringify(aiResponse),
-                });
-                session.lastActive = new Date();
-                await session.save();
+                // session.history.push({
+                //     role: "assistant",
+                //     content: dbResults
+                // });
 
                 // Map fields including nested ones
                 const filteredResults = dbResults.map((doc) => {
@@ -470,15 +499,22 @@ async function handleUserQuery(req, res) {
                     return result;
                 });
 
+                session.history.push({
+                    role: "assistant",
+                    content: filteredResults
+                });
+
+                session.lastActive = new Date();
+                await session.save();
                 return res.json({
                     success: true,
                     data: [
                         {
                             original: message,
                             total: filteredResults.length,
-                            explanation: aiResponse.explanation,
-                            mongoQuery: aiResponse.mongoQuery,
-                            estimatedResults: aiResponse.estimatedResults,
+                            // explanation: aiResponse.explanation,
+                            // mongoQuery: aiResponse.mongoQuery,
+                            // estimatedResults: aiResponse.estimatedResults,
                             results: filteredResults,
                         },
                     ],

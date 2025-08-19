@@ -7,7 +7,7 @@ const MessageSchema = new mongoose.Schema({
         required: true,
     },
     content: {
-        type: String,
+        type: mongoose.Schema.Types.Mixed,  // ✅ Allows strings AND objects
         required: true,
     },
     timestamp: {
@@ -44,9 +44,9 @@ const ChatSessionSchema = new mongoose.Schema({
         required: false,
     },
 
-    response: {
+    // response: {
 
-    },
+    // },
     history: {
         type: [MessageSchema],
         default: [],
